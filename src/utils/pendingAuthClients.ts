@@ -13,13 +13,14 @@
  *
  * Memory safety:
  * Each entry has a 15-minute self-destruct timer. If the user never completes
- * Step 2, the client is disconnected and removed automatically, preventing
- * connection and memory leaks.
+ * Step 2, the client is disconnected, the map entry is removed, and the
+ * incomplete user account is deleted from MongoDB.
  */
 
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import { TG_CONFIG } from "../lib/telegram.js";
+import { User } from "../models/User.js";
 
 /**
  * In-memory store for pending login clients.
@@ -64,8 +65,10 @@ export const requestLoginCode = async (phoneNumber: string) => {
     );
 
     // ── 15-MINUTE SELF-DESTRUCT ──────────────────────────────────────────────
-    // If the user doesn't complete Step 2 within 15 minutes, disconnect and
-    // remove the client to prevent resource leaks.
+    // If the user doesn't complete Step 2 within 15 minutes:
+    //   1. Disconnect and remove the pending Telegram client (memory safety)
+    //   2. Delete the user account — they never finished verification, so the
+    //      account is incomplete and should not persist in the database.
     const timeout = setTimeout(
       async () => {
         if (pendingAuth.has(phoneNumber)) {
@@ -75,6 +78,12 @@ export const requestLoginCode = async (phoneNumber: string) => {
           const expired = pendingAuth.get(phoneNumber);
           await expired?.client.disconnect();
           pendingAuth.delete(phoneNumber);
+
+          // Delete the unverified user account
+          const deleted = await User.findOneAndDelete({ phoneNumber });
+          if (deleted) {
+            console.log(`🗑️  Deleted unverified account for: ${phoneNumber}`);
+          }
         }
       },
       15 * 60 * 1000,
