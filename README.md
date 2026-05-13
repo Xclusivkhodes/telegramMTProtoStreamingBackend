@@ -62,7 +62,9 @@ src/
 │   ├── User.ts                      # User schema (stores sessionString, role, etc.)
 │   └── Audio.ts                     # Sermon metadata schema
 ├── middleware/
-│   └── auth.ts                      # JWT verification for REST routes
+│   ├── auth.ts                      # JWT verification for REST routes
+│   ├── permissions.ts               # graphql-shield rules (isAuthenticated, isAdmin)
+│   └── rateLimiter.ts               # express-rate-limit for /refresh endpoint
 ├── controllers/
 │   ├── streamAudio.ts               # Core streaming controller (HTTP range support)
 │   ├── refreshAccessToken.ts        # JWT token rotation
@@ -72,7 +74,6 @@ src/
 ├── utils/
 │   ├── AppError.ts                  # Custom error class
 │   ├── auth.ts                      # JWT generation helper
-│   ├── adminConfimation.ts          # adminOnly() resolver guard
 │   ├── cloudinaryUtil.ts            # Cloudinary upload wrapper
 │   └── pendingAuthClients.ts        # Temporary client store for OTP login flow
 └── graphql/
@@ -82,10 +83,25 @@ src/
     │   ├── audioShema.ts            # Audio types, queries, mutations
     │   └── testSchema.ts            # Dev-only test query
     ├── resolvers/
-    │   ├── resolvers.ts             # Merges all resolvers
-    │   ├── signupResolver.ts        # Auth resolvers (register, login, OTP, logout)
-    │   ├── audioResolvers.ts        # Audio CRUD + paginated queries
-    │   └── testResolver.ts          # Dev-only: manually trigger a channel sync
+    │   ├── resolvers.ts             # Merges resolvers, builds schemaWithPermissions
+    │   ├── signupResolver.ts        # Auth resolver barrel (me, users, register, login…)
+    │   ├── audioResolvers.ts        # Audio resolver barrel (queries + mutations)
+    │   ├── testResolver.ts          # Dev-only: manually trigger a channel sync
+    │   ├── signupResolvers/         # Individual auth resolver functions
+    │   │   ├── registerUser.ts
+    │   │   ├── verifyTelegramLogin.ts
+    │   │   ├── login.ts
+    │   │   └── logout.ts
+    │   └── audioResolvers/          # Individual audio resolver functions
+    │       ├── audioMutations/
+    │       │   ├── addAudio.ts
+    │       │   ├── updateAudio.ts
+    │       │   └── deleteAudio.ts
+    │       └── audioQueries/
+    │           ├── allAudios.ts
+    │           ├── audio.ts
+    │           ├── audiosByPreacher.ts
+    │           └── getAudios.ts
     └── dataSources/
         ├── UserDataSource.ts        # DB access layer for users
         └── AudioDataSources.ts      # DB access layer for audio records
@@ -375,6 +391,9 @@ Roles are set in the database. To promote a user to admin, update their document
 ---
 
 ## Key Design Decisions
+
+**Why graphql-shield for permissions instead of inline resolver guards?**
+Each resolver used to call an `adminOnly()` wrapper directly. Moving auth rules into `permissions.ts` (graphql-shield) keeps resolvers focused on business logic and makes the permission matrix visible in one place. Rules are cached per-context so they don't re-run on every field in a request.
 
 **Why MTProto instead of the Bot API?**
 The Bot API doesn't support streaming large files with range requests. MTProto's `iterDownload` lets us seek to any byte offset, which is required for audio scrubbing.

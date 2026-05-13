@@ -15,10 +15,10 @@ import { syncChannels } from "../../services/channelCrawler.js";
 export const testResolver = {
   Query: {
     // Manually trigger a channel sync and return the crawled audio records
-    testAudios: async (_: any, __: any, { dataSources }: any) => {
+    testAudios: async (_: any, __: any, { user }: any) => {
       const channels = ["-1001140281557"];
       try {
-        const audios = await syncChannels(channels);
+        const audios = await syncChannels(channels, user.sessionString);
         return audios;
       } catch (err: any) {
         throw new AppError(`There was an error: ${err.message || err}`);

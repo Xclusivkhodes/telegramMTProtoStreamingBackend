@@ -27,11 +27,11 @@ export const userTypeDefs = gql`
     username: String!
     email: String
     phoneNumber: String!
-    password: String
-    refreshToken: String
     role: String!
-    sessionString: String
-    phoneCodeHash: String
+    # refreshToken: String
+    # password: String
+    # sessionString: String
+    # phoneCodeHash: String
   }
 
   extend type Query {

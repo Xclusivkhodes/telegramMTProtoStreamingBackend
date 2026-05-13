@@ -30,19 +30,22 @@ import { AppError } from "../utils/AppError.js";
 // At most 5 Cloudinary uploads run in parallel to stay within rate limits
 const limit = pLimit(5);
 
-export const syncChannels = async (channelAddresses: string[]) => {
+export const syncChannels = async (
+  channelAddresses: string[],
+  sessionString: string,
+) => {
   // Use the system admin client (keyed by "SYSTEM_ADMIN") which uses the
   // TG_STRING_SESSION from .env — not a user's personal session.
   const tgClient = await telegramManager.getClient(
     "SYSTEM_ADMIN",
-    process.env.TG_STRING_SESSION!,
+    sessionString || process.env.TG_STRING_SESSION!,
   );
 
   for (const address of channelAddresses) {
     console.log(`\n--- 🔄 Starting Sync for: ${address} ---`);
 
     try {
-      const entity    = await tgClient.getEntity(address);
+      const entity = await tgClient.getEntity(address);
       const channelId = entity.id.toString();
 
       let count = 0;
@@ -109,15 +112,15 @@ export const syncChannels = async (channelAddresses: string[]) => {
               filter: { messageId: message.id, channelId },
               update: {
                 $set: {
-                  title:     cleanTitle,
-                  preacher:  audioAttr?.performer || "Unknown Artist",
-                  duration:  audioAttr?.duration  || 0,
-                  size:      doc.size.toString(),
-                  mimeType:  doc.mimeType,
-                  dcId:      doc.dcId,
+                  title: cleanTitle,
+                  preacher: audioAttr?.performer || "Unknown Artist",
+                  duration: audioAttr?.duration || 0,
+                  size: doc.size.toString(),
+                  mimeType: doc.mimeType,
+                  dcId: doc.dcId,
                   documentId: doc.id.toString(),
                   imageUrl,
-                  caption:   message.message || "",
+                  caption: message.message || "",
                   updatedAt: new Date(),
                 },
               },

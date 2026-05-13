@@ -1,28 +1,36 @@
-/**
- * utils/AppError.ts — Custom Application Error Class
- *
- * Extends the native Error with two extra fields:
- *   statusCode    — HTTP status to send in the response (default 500)
- *   isOperational — true for expected errors (bad input, not found, auth fail)
- *                   false for programmer bugs. Useful if you add a global error
- *                   handler that decides whether to restart the process.
- *
- * Usage:
- *   throw new AppError("User not found", 404);
- *   throw new AppError("Unauthorized", 401);
- */
-
 export class AppError extends Error {
+  public readonly status: string;
+
   constructor(
     public message: string,
     public statusCode: number = 500,
     public isOperational: boolean = true,
   ) {
     super(message);
-    // Restore the prototype chain so `instanceof AppError` works correctly
+
+    // 1. Set the name to the class name instead of generic "Error"
+    this.name = this.constructor.name;
+
+    // 2. Define status based on code (4xx = fail, 5xx = error)
+    this.status = `${statusCode}`.startsWith("4") ? "fail" : "error";
+
+    // 3. Restore prototype chain
     Object.setPrototypeOf(this, new.target.prototype);
-    // Capture a clean stack trace that starts at the throw site, not here
+
+    // 4. Capture the stack trace
     Error.captureStackTrace(this, this.constructor);
-    console.log(message);
+
+    // 5. Contextual Logging
+    this.logError();
+  }
+
+  private logError() {
+    console.error(`--- 🚨 Error Identified ---`);
+    console.error(`Type: ${this.name}`);
+    console.error(`Status: ${this.statusCode} (${this.status})`);
+    console.error(`Message: ${this.message}`);
+    // This shows the file, line number, and function call stack
+    console.error(`Stack: ${this.stack}`);
+    console.error(`---------------------------\n`);
   }
 }

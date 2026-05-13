@@ -6,7 +6,7 @@
  *   2. Daily channel-sync cron job
  *   3. Express middleware (CORS, cookies, JSON)
  *   4. REST endpoints  → /health, /refresh, /stream, /share
- *   5. Apollo GraphQL  → mounted at "/"
+ *   5. Apollo GraphQL  → mounted at "/" using schemaWithPermissions
  *
  * Boot order matters: DB must be ready before the cron or Apollo server
  * attempt to touch any collections.
@@ -21,8 +21,9 @@ import { config } from "dotenv";
 import { ApolloServer } from "@apollo/server";
 import { expressMiddleware } from "@as-integrations/express5";
 
+// import { resolvers } from "./graphql/resolvers/resolvers.js";
+import { schemaWithPermissions } from "./graphql/resolvers/resolvers.js";
 import { typeDefs } from "./graphql/schema/schema.js";
-import { resolvers } from "./graphql/resolvers/resolvers.js";
 import { connectDB } from "./config/db.js";
 import { UserDataSources } from "./graphql/dataSources/UserDataSource.js";
 import { AudioDataSources } from "./graphql/dataSources/AudioDataSources.js";
@@ -35,6 +36,7 @@ import { streamAudio } from "./controllers/streamAudio.js";
 import { authenticateRequest } from "./middleware/auth.js";
 import { shareController } from "./controllers/sharingController.js";
 import { AppError } from "./utils/AppError.js";
+import authLimiter from "./middleware/rateLimiter.js";
 
 // Load .env variables into process.env
 config();
@@ -106,7 +108,10 @@ app.use(express.json());
 // POST /refresh — Issues a new access token using the stored refresh token cookie.
 // Kept as REST (not GraphQL) because it must run before Apollo's context
 // function tries to verify the (possibly expired) access token.
-app.post("/refresh", refreshAccessToken);
+// The authLimiter middleware is for rate limiting
+// This is to avoid hackers hammering the /refresh endpoint
+// To avoid stealing someone's session
+app.post("/refresh", authLimiter, refreshAccessToken);
 
 /**
  * GET /stream/:channelId/:messageId
@@ -127,12 +132,15 @@ app.get("/share/:channelId/:messageId", shareController);
 
 // ─── 5. Apollo GraphQL Server ─────────────────────────────────────────────────
 // Apollo is mounted at "/" so all GraphQL operations go to the root path.
+// schemaWithPermissions is the executable schema with graphql-shield middleware
+// baked in — no separate resolvers/typeDefs options needed.
 // The context function runs on every request and:
 //   a) Instantiates data-source classes (thin wrappers around Mongoose models)
 //   b) Reads the access_token cookie and hydrates the current user
 const server = new ApolloServer({
-  typeDefs,
-  resolvers,
+  // typeDefs,
+  // resolvers,
+  schema: schemaWithPermissions,
 });
 
 await server.start();
