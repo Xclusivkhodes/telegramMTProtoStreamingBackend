@@ -17,6 +17,8 @@
 import { Audio } from "../../models/Audio.js";
 import { AppError } from "../../utils/AppError.js";
 
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 export class AudioDataSources {
   constructor(private model: typeof Audio) {}
 
@@ -37,8 +39,8 @@ export class AudioDataSources {
   async findAudioByTitle(title: string) {
     return await this.model.find({
       $or: [
-        { title:    { $regex: title, $options: "i" } },
-        { preacher: { $regex: title, $options: "i" } },
+        { title: { $regex: escapeRegex(title), $options: "i" } },
+        { preacher: { $regex: escapeRegex(title), $options: "i" } },
       ],
     });
   }
@@ -56,7 +58,7 @@ export class AudioDataSources {
     after?: string,
   ) {
     let query: any = {
-      preacher: { $regex: preacher, $options: "i" },
+      preacher: { $regex: escapeRegex(preacher), $options: "i" },
     };
 
     if (after) {
@@ -78,9 +80,9 @@ export class AudioDataSources {
       .limit(first + 1);
 
     const hasNextPage = results.length > first;
-    const nodes       = hasNextPage ? results.slice(0, first) : results;
+    const nodes = hasNextPage ? results.slice(0, first) : results;
 
-    const lastItem  = nodes[nodes.length - 1];
+    const lastItem = nodes[nodes.length - 1];
     const endCursor = lastItem
       ? Buffer.from(`${lastItem.title}:${lastItem._id}`).toString("base64")
       : null;

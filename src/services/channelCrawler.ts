@@ -32,7 +32,7 @@ const limit = pLimit(5);
 
 export const syncChannels = async (
   channelAddresses: string[],
-  sessionString: string,
+  sessionString?: string,
 ) => {
   // Use the system admin client (keyed by "SYSTEM_ADMIN") which uses the
   // TG_STRING_SESSION from .env — not a user's personal session.

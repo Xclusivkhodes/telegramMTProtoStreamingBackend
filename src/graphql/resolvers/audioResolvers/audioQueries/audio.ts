@@ -1,3 +1,15 @@
+/**
+ * audioQueries/audio.ts — Search Audio by Title or Preacher
+ *
+ * Performs a case-insensitive partial-match search across both the title
+ * and preacher fields. Used by the frontend search bar.
+ *
+ * The underlying query uses MongoDB $regex — see AudioDataSources for the
+ * regex escaping note to prevent ReDoS on user-supplied input.
+ *
+ * Returns results sorted ascending by name then sequence.
+ */
+
 import { sort } from "fast-sort";
 import { AppError } from "../../../../utils/AppError.js";
 

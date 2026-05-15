@@ -22,9 +22,20 @@ import { telegramManager } from "../lib/telegramManager.js";
 import bigInt from "big-integer";
 import { LRUCache } from "lru-cache";
 import { config } from "dotenv";
-import { AppError } from "../utils/AppError.js";
+import type { Request, Response } from "express";
 
 config();
+
+declare global {
+  namespace Express {
+    interface Request {
+      user?: {
+        id: string | number;
+        sessionString: string;
+      };
+    }
+  }
+}
 
 /**
  * LRU cache for Telegram Document metadata.
@@ -34,25 +45,31 @@ config();
  */
 const metadataCache = new LRUCache<string, Api.Document>({ max: 500 });
 
-export const streamAudio = async (req: any, res: any) => {
+export const streamAudio = async (req: Request, res: Response) => {
   let { channelId, messageId } = req.params;
+  // Ensure channelId is a string (Express can type params as string | string[])
+  const channelIdStr = Array.isArray(channelId) ? channelId[0] : channelId;
 
   // ── 1. ID NORMALISATION ──────────────────────────────────────────────────
   // Telegram supergroups/channels use "-100<id>" internally. The frontend may
   // send just the numeric part, so we prepend "-100" if it's missing.
-  const fullChannelId = channelId.startsWith("-100")
-    ? channelId
-    : `-100${channelId}`;
+  const fullChannelId = channelIdStr!.startsWith("-100")
+    ? channelIdStr
+    : `-100${channelIdStr}`;
 
   const range = req.headers.range;
   const user = req.user; // Attached by authenticateRequest middleware
-  const cacheKey = `${user.id}:${messageId}`;
+  const cacheKey = `${user!.id}:${messageId}`;
+
+  if (!user!.sessionString) {
+    return res.status(403).json({ error: "Telegram verification required" });
+  }
 
   try {
     // Get (or create) the user's pooled MTProto connection
     const tgClient = await telegramManager.getClient(
-      user.id,
-      user.sessionString,
+      String(user!.id),
+      user!.sessionString,
     );
 
     // ── 2. METADATA FETCH (with LRU cache) ──────────────────────────────────
@@ -64,8 +81,8 @@ export const streamAudio = async (req: any, res: any) => {
       let message;
       try {
         // Fastest path: direct message lookup by ID
-        const messages = await tgClient.getMessages(fullChannelId, {
-          ids: [parseInt(messageId)],
+        const messages = await tgClient.getMessages(fullChannelId as string, {
+          ids: [parseInt(messageId as string)],
         });
         message = messages[0];
 
@@ -81,7 +98,7 @@ export const streamAudio = async (req: any, res: any) => {
           err.message === "ENTITY_MISSING"
         ) {
           console.log(
-            `[AUTH] User ${user.id} needs to join ${fullChannelId}. Joining now...`,
+            `[AUTH] User ${user!.id} needs to join ${fullChannelId}. Joining now...`,
           );
 
           try {
@@ -93,9 +110,12 @@ export const streamAudio = async (req: any, res: any) => {
             );
 
             // Retry after joining
-            const messages = await tgClient.getMessages(fullChannelId, {
-              ids: [parseInt(messageId)],
-            });
+            const messages = await tgClient.getMessages(
+              fullChannelId as string,
+              {
+                ids: [parseInt(messageId as string)],
+              },
+            );
             message = messages[0];
           } catch (joinErr: any) {
             console.error("❌ Auto-join failed:", joinErr.message);
@@ -145,24 +165,24 @@ export const streamAudio = async (req: any, res: any) => {
 
     if (range) {
       const parts = range.replace(/bytes=/, "").split("-");
-      start = parseInt(parts[0], 10);
+      start = parseInt(parts[0] as string, 10);
       end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
     }
 
-    const alignedStart  = Math.floor(start / 1024) * 1024;  // Round down to 1 KB
-    const bytesToSkip   = start - alignedStart;              // Bytes to discard from first chunk
-    const chunkLength   = end - start + 1;                   // Exact bytes the client wants
-    const alignedLimit  = Math.ceil((end - alignedStart + 1) / 1024) * 1024; // Round up
+    const alignedStart = Math.floor(start / 1024) * 1024; // Round down to 1 KB
+    const bytesToSkip = start - alignedStart; // Bytes to discard from first chunk
+    const chunkLength = end - start + 1; // Exact bytes the client wants
+    const alignedLimit = Math.ceil((end - alignedStart + 1) / 1024) * 1024; // Round up
 
     // ── 4. RESPONSE HEADERS ──────────────────────────────────────────────────
     // 206 Partial Content for range requests, 200 for full-file requests.
     // Content-Range tells the browser where this chunk sits in the full file.
     res.writeHead(range ? 206 : 200, {
-      "Content-Range":  `bytes ${start}-${end}/${fileSize}`,
-      "Accept-Ranges":  "bytes",
+      "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+      "Accept-Ranges": "bytes",
       "Content-Length": chunkLength,
-      "Content-Type":   doc.mimeType,
-      "Cache-Control":  "no-cache",
+      "Content-Type": doc.mimeType,
+      "Cache-Control": "no-cache",
     });
 
     // ── 5. STREAMING ENGINE ──────────────────────────────────────────────────
@@ -171,18 +191,18 @@ export const streamAudio = async (req: any, res: any) => {
     // We pipe each chunk straight to the HTTP response — no disk I/O.
     const iter = tgClient.iterDownload({
       file: new Api.InputDocumentFileLocation({
-        id:            doc.id,
-        accessHash:    doc.accessHash,
+        id: doc.id,
+        accessHash: doc.accessHash,
         fileReference: doc.fileReference,
-        thumbSize:     "",
+        thumbSize: "",
       }),
-      offset:      bigInt(alignedStart),
-      limit:       alignedLimit,
-      dcId:        doc.dcId,
-      requestSize: 512 * 1024, // 512 KB per Telegram API request
+      offset: bigInt(alignedStart),
+      limit: alignedLimit,
+      dcId: doc.dcId,
+      requestSize: 128 * 1024, // 128 KB per Telegram API request
     });
 
-    let bytesSent    = 0;
+    let bytesSent = 0;
     let isFirstChunk = true;
 
     console.log(
@@ -213,7 +233,7 @@ export const streamAudio = async (req: any, res: any) => {
 
       // Live progress indicator in the server console
       const progressMB = (bytesSent / 1024 / 1024).toFixed(2);
-      const totalMB    = (fileSize / 1024 / 1024).toFixed(2);
+      const totalMB = (fileSize / 1024 / 1024).toFixed(2);
       process.stdout.write(
         `\r[Streaming] ${progressMB}MB / ${totalMB}MB | Msg: ${messageId}`,
       );

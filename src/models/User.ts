@@ -22,6 +22,7 @@
 import bcrypt from "bcryptjs";
 import { Schema, model } from "mongoose";
 import { AppError } from "../utils/AppError.js";
+import { encrypt, decrypt } from "../utils/encryptor.js";
 
 export interface IUser {
   firstName: string;
@@ -32,26 +33,26 @@ export interface IUser {
   phoneNumber: string;
   refreshToken: string;
   role: string;
-  sessionString: string;  // Telegram MTProto session — highly sensitive
-  phoneCodeHash: string;  // Temporary OTP flow state
+  sessionString: string; // Telegram MTProto session — highly sensitive
+  phoneCodeHash: string; // Temporary OTP flow state
 }
 
 // ── Schema Definition ─────────────────────────────────────────────────────────
 const userSchema = new Schema<IUser>({
-  firstName:     { type: String, required: true },
-  lastName:      { type: String, required: true },
-  username:      { type: String, required: true, unique: true },
-  email:         { type: String, required: true, unique: true },
-  password:      { type: String, required: true },
-  phoneNumber:   { type: String, required: true },
-  refreshToken:  { type: String },
+  firstName: { type: String, required: true },
+  lastName: { type: String, required: true },
+  username: { type: String, required: true, unique: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  phoneNumber: { type: String, required: true },
+  refreshToken: { type: String },
   sessionString: { type: String },
   phoneCodeHash: { type: String },
   role: {
-    type:     String,
-    enum:     ["admin", "preacher", "user"],
+    type: String,
+    enum: ["admin", "preacher", "user"],
     required: true,
-    default:  "user",
+    default: "user",
   },
 });
 
@@ -64,11 +65,31 @@ userSchema.pre("save", async function (next) {
   try {
     // Salt rounds of 12 balances security and hashing speed
     this.password = await bcrypt.hash(this.password, 12);
-    next;
+    return next;
   } catch (err: any) {
     console.log(err);
     throw new AppError(`An error occured: ${err.mesage || err}`);
   }
 });
+
+// userSchema.pre("save", function (next) {
+//   if (this.isModified("sessionString") && this.sessionString) {
+//     this.sessionString = encrypt(this.sessionString);
+//   }
+//   next;
+// });
+
+// // DECRYPT after retrieving from DB
+// userSchema.post("init", function (doc) {
+//   if (doc.sessionString) {
+//     try {
+//       doc.sessionString = decrypt(doc.sessionString);
+//     } catch (err) {
+//       console.error(
+//         "Decryption failed. Data might be corrupted or key is wrong.",
+//       );
+//     }
+//   }
+// });
 
 export const User = model("User", userSchema);

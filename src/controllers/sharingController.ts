@@ -1,66 +1,81 @@
 /**
  * controllers/sharingController.ts — Social Share Link Handler
- *
- * Handles GET /share/:channelId/:messageId
- *
- * When a user shares a sermon link on WhatsApp, Twitter, etc., the platform's
- * link-preview bot fetches the URL and reads the Open Graph meta tags to build
- * a rich card (title, description, image).
- *
- * This controller:
- *   1. Looks up the sermon in MongoDB to get its title, preacher, and thumbnail
- *   2. Falls back to generic "The Martyrs" branding if the sermon isn't found
- *   3. Reads the static index.html file
- *   4. Injects personalised OG meta tags using string replacement
- *   5. Returns the modified HTML
- *
- * The index.html must contain these placeholder strings for injection to work:
- *   __OG_TITLE__, __OG_DESCRIPTION__, __OG_IMAGE__, __OG_URL__
  */
-
+import type { Request, Response } from "express";
 import { Audio as AudioModel } from "../models/Audio.js";
 import path from "node:path";
-import fs from "node:fs";
+import fs from "node:fs/promises"; // Use promises for cleaner async/await
 
-export const shareController = async (req: any, res: any) => {
-  const { channelId, messageId } = req.params;
+// Helper to prevent XSS and broken HTML attributes
+const escapeHtml = (str: string): string => {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+};
 
-  // Normalise channel ID to Telegram's "-100..." format
-  const cleanChannelId = channelId.startsWith("-100")
-    ? channelId
-    : `-100${channelId}`;
-  console.log(cleanChannelId);
+export const shareController = async (req: Request, res: Response) => {
+  try {
+    const { channelId, messageId } = req.params;
 
-  // Look up the sermon metadata from MongoDB
-  const audio = await AudioModel.findOne({ cleanChannelId, messageId });
+    // Normalise channel ID to Telegram's "-100..." format
+    const channelIdStr = Array.isArray(channelId) ? channelId[0] : channelId;
+    if (!channelIdStr) {
+      return res.status(400).send("Invalid channelId");
+    }
+    const cleanChannelId = channelIdStr.startsWith("-100")
+      ? channelIdStr
+      : `-100${channelIdStr}`;
 
-  // Build the OG metadata, falling back to generic branding if not found
-  const metadata = {
-    title:       audio?.title    || "Sermon",
-    preacher:    audio?.preacher || "The Martyrs",
-    description: audio?.caption  || "Listen to this powerful message on The Martyrs.",
-    cover:       audio?.imageUrl || "https://your-domain.com/default-share-image.jpg",
-  };
-
-  const indexPath = path.resolve("../../index.html");
-
-  fs.readFile(indexPath, "utf8", (err: any, htmlData: any) => {
-    if (err) {
-      console.error("Error reading index.html:", err);
-      return res.status(500).send("Server Error");
+    // Parse messageId to number
+    const messageIdNum = parseInt(messageId as string, 10);
+    if (isNaN(messageIdNum)) {
+      return res.status(400).send("Invalid messageId");
     }
 
-    // Replace placeholder tokens in the HTML with real sermon data
+    // 1. Look up sermon metadata.
+    // Note: ensure your DB field is 'channelId'
+    const audio = await AudioModel.findOne({
+      channelId: cleanChannelId,
+      messageId: messageIdNum,
+    });
+
+    // 2. Build metadata with fallback
+    const metadata = {
+      title: audio?.title || "Sermon",
+      preacher: audio?.preacher || "The Martyrs",
+      description:
+        audio?.caption || "Listen to this powerful message on The Martyrs.",
+      cover: audio?.imageUrl || "https://thematyrs.com/default-share-image.jpg",
+      url: `https://thematyrs.com/share/${channelId}/${messageId}`,
+    };
+
+    // 3. Read the index.html file
+    // Using process.cwd() is often safer than relative dots in compiled TS
+    const indexPath = path.resolve(process.cwd(), "public/index.html");
+    let htmlData = await fs.readFile(indexPath, "utf8");
+
+    // 4. Inject personalised OG meta tags
+    // We escape values going into content attributes to prevent broken tags
     const personalizedHtml = htmlData
       .replace(
         "<title>The Martyrs</title>",
-        `<title>${metadata.title} - ${metadata.preacher}</title>`,
+        `<title>${escapeHtml(metadata.title)} - ${escapeHtml(metadata.preacher)}</title>`,
       )
-      .replace(/__OG_TITLE__/g,       metadata.title)
-      .replace(/__OG_DESCRIPTION__/g, `Sermon by ${metadata.preacher}: ${metadata.description}`)
-      .replace(/__OG_IMAGE__/g,       metadata.cover)
-      .replace(/__OG_URL__/g,         `https://thematyrs.com/share/${channelId}/${messageId}`);
+      .replace(/__OG_TITLE__/g, escapeHtml(metadata.title))
+      .replace(
+        /__OG_DESCRIPTION__/g,
+        escapeHtml(`Sermon by ${metadata.preacher}: ${metadata.description}`),
+      )
+      .replace(/__OG_IMAGE__/g, metadata.cover) // URLs usually don't need escaping unless they have query params
+      .replace(/__OG_URL__/g, metadata.url);
 
-    return res.send(personalizedHtml);
-  });
+    // 5. Return the modified HTML
+    return res.status(200).send(personalizedHtml);
+  } catch (error) {
+    console.error("Sharing Controller Error:", error);
+    return res.status(500).send("Server Error");
+  }
 };

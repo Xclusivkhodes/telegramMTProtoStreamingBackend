@@ -1,29 +1,38 @@
 /**
  * graphql/resolvers/resolvers.ts — Schema Assembly Point
  *
- * Merges all resolver modules, builds an executable schema, and applies
- * graphql-shield permission middleware. The resulting schemaWithPermissions
- * is passed directly to ApolloServer as its `schema` option.
+ * This file is the final assembly step for the GraphQL layer:
+ *   1. Merges all resolver modules into one object
+ *   2. Builds an executable schema (typeDefs + resolvers)
+ *   3. Wraps it with graphql-shield permission middleware
  *
- * To add a new resolver module, import it and add it to resolverArray.
+ * The exported schemaWithPermissions is passed directly to ApolloServer
+ * as its `schema` option — no separate typeDefs/resolvers options needed.
+ *
+ * To add a new resolver module:
+ *   import it and add it to resolverArray below.
  */
 
 import { mergeResolvers } from "@graphql-tools/merge";
+import { makeExecutableSchema } from "@graphql-tools/schema";
+import { applyMiddleware } from "graphql-middleware";
+
 import { signupResolver } from "./signupResolver.js";
 import { audioResolver } from "./audioResolvers.js";
 import { testResolver } from "./testResolver.js";
-import { applyMiddleware } from "graphql-middleware";
-import { makeExecutableSchema } from "@graphql-tools/schema";
 import { typeDefs } from "../schema/schema.js";
 import { permissions } from "../../middleware/permissions.js";
 
+// Merge all resolver modules into a single resolver map
 const resolverArray = [signupResolver, audioResolver, testResolver];
 const mergedResolvers = mergeResolvers(resolverArray);
-// export const resolvers = mergeResolvers(resolverArray);
 
+// Build a standard executable schema from typeDefs + resolvers
 export const schema = makeExecutableSchema({
   typeDefs,
   resolvers: mergedResolvers,
 });
 
+// Wrap the schema with graphql-shield so every operation passes through
+// the permission rules defined in permissions.ts before reaching a resolver
 export const schemaWithPermissions = applyMiddleware(schema, permissions);

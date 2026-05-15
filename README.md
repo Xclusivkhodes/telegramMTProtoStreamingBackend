@@ -39,10 +39,12 @@ A daily cron job (3 AM, Africa/Accra) crawls the configured Telegram channels, e
 | Runtime | Node.js 20, TypeScript |
 | HTTP Server | Express 5 |
 | API | Apollo Server 4 (GraphQL) |
+| Permissions | graphql-shield + graphql-middleware |
 | Telegram | GramJS (MTProto) |
 | Database | MongoDB via Mongoose |
 | Image CDN | Cloudinary |
 | Auth | JWT (httpOnly cookies) + bcrypt |
+| Rate Limiting | express-rate-limit |
 | Scheduler | node-cron |
 | Deployment | Docker / Vercel |
 
@@ -72,7 +74,7 @@ src/
 ├── services/
 │   └── channelCrawler.ts            # Telegram channel sync (runs via cron)
 ├── utils/
-│   ├── AppError.ts                  # Custom error class
+│   ├── AppError.ts                  # Custom error class with structured logging
 │   ├── auth.ts                      # JWT generation helper
 │   ├── cloudinaryUtil.ts            # Cloudinary upload wrapper
 │   └── pendingAuthClients.ts        # Temporary client store for OTP login flow
@@ -83,7 +85,7 @@ src/
     │   ├── audioShema.ts            # Audio types, queries, mutations
     │   └── testSchema.ts            # Dev-only test query
     ├── resolvers/
-    │   ├── resolvers.ts             # Merges resolvers, builds schemaWithPermissions
+    │   ├── resolvers.ts             # Builds schemaWithPermissions (shield + middleware)
     │   ├── signupResolver.ts        # Auth resolver barrel (me, users, register, login…)
     │   ├── audioResolvers.ts        # Audio resolver barrel (queries + mutations)
     │   ├── testResolver.ts          # Dev-only: manually trigger a channel sync
@@ -147,6 +149,9 @@ JWT_REFRESH_SECRET=your_refresh_secret_here
 CLOUDINARY_NAME=your_cloud_name
 CLOUDINARY_API_KEY=your_api_key
 CLOUDINARY_API_SECRET=your_api_secret
+
+# ── Environment ───────────────────────────────────────────────────────────────
+NODE_ENV=development               # Set to "production" to disable GraphQL introspection
 ```
 
 ### Generating a Session String
@@ -202,7 +207,7 @@ curl http://localhost:7860/health
 
 ### 6. Open the GraphQL playground
 
-Navigate to `http://localhost:7860` in your browser. Apollo Sandbox will load.
+Navigate to `http://localhost:7860` in your browser. Apollo Sandbox will load (only available when `NODE_ENV` is not `"production"`).
 
 ---
 
@@ -213,7 +218,7 @@ Navigate to `http://localhost:7860` in your browser. Apollo Sandbox will load.
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | GET | `/health` | None | Liveness probe |
-| POST | `/refresh` | refresh_token cookie | Rotate JWT tokens |
+| POST | `/refresh` | refresh_token cookie | Rotate JWT tokens (rate-limited: 10 req / 15 min) |
 | GET | `/stream/:channelId/:messageId` | access_token cookie | Stream audio (HTTP range) |
 | GET | `/share/:channelId/:messageId` | None | OG meta HTML for share links |
 
@@ -245,7 +250,6 @@ mutation VerifyOTP {
     code: "12345"
   }) {
     id
-    sessionString
   }
 }
 
@@ -374,7 +378,7 @@ vercel --prod
    ];
    ```
 2. The next 3 AM cron run will crawl the new channel automatically.
-3. To sync immediately without waiting, call the `testAudios` GraphQL query (development only).
+3. To sync immediately without waiting, call the `testAudios` GraphQL query (admin only, development).
 
 ---
 
@@ -406,6 +410,9 @@ httpOnly cookies are not accessible to JavaScript, which prevents XSS attacks fr
 
 **Why cursor pagination instead of offset?**
 Offset pagination skips or repeats items when records are inserted or deleted between pages. Cursor pagination is stable regardless of concurrent writes.
+
+**Why is GraphQL introspection disabled in production?**
+Introspection lets any client enumerate every type, field, and mutation in the schema — a reconnaissance gift to an attacker. It is disabled when `NODE_ENV=production` and left on in development for Apollo Sandbox.
 
 ---
 

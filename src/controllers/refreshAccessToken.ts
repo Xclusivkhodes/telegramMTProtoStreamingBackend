@@ -25,8 +25,9 @@ import { User } from "../models/User.js";
 import { AppError } from "../utils/AppError.js";
 import { generateToken } from "../utils/auth.js";
 import { UserDataSources } from "../graphql/dataSources/UserDataSource.js";
+import type { Request, Response } from "express";
 
-const refreshAccessToken = async (req: any, res: any) => {
+const refreshAccessToken = async (req: Request, res: Response) => {
   const oldToken = req.cookies.refresh_token;
 
   // No cookie means the user is logged out
@@ -55,25 +56,26 @@ const refreshAccessToken = async (req: any, res: any) => {
     // Issue new access token cookie (15 min)
     res.cookie("access_token", accessToken, {
       httpOnly: true,
-      secure:   true,
+      secure: true,
       sameSite: "none",
-      maxAge:   15 * 60 * 1000,
+      maxAge: 15 * 60 * 1000,
     });
 
     // Issue new refresh token cookie (7 days, scoped to /refresh only)
     res.cookie("refresh_token", refreshToken, {
       httpOnly: true,
-      secure:   true,
+      secure: true,
       sameSite: "none",
-      path:     "/refresh",
-      maxAge:   7 * 24 * 60 * 60 * 1000,
+      path: "/refresh",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
     console.log("Access token refreshed");
     return res.send({ ok: true });
   } catch (err: any) {
-    console.log("Refreshing failed");
-    throw new AppError(`An error occured: ${err.mesage || err}`);
+    res
+      .status(401)
+      .send(`An error occured while refreshing token: ${err.mesage || err}`);
   }
 };
 

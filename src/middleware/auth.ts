@@ -15,8 +15,13 @@
 
 import jwt from "jsonwebtoken";
 import { User } from "../models/User.js";
+import type { Response, Request } from "express";
 
-export const authenticateRequest = async (req: any, res: any, next: any) => {
+export const authenticateRequest = async (
+  req: Request,
+  res: Response,
+  next: any,
+) => {
   const token = req.cookies?.access_token;
 
   // No cookie → reject immediately, don't touch the DB

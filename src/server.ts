@@ -12,18 +12,22 @@
  * attempt to touch any collections.
  */
 
+import { config } from "dotenv";
+
+// Load .env variables into process.env
+config();
+
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
 import cron from "node-cron";
-import { config } from "dotenv";
 import { ApolloServer } from "@apollo/server";
 import { expressMiddleware } from "@as-integrations/express5";
 
 // import { resolvers } from "./graphql/resolvers/resolvers.js";
 import { schemaWithPermissions } from "./graphql/resolvers/resolvers.js";
-import { typeDefs } from "./graphql/schema/schema.js";
+// import { typeDefs } from "./graphql/schema/schema.js";
 import { connectDB } from "./config/db.js";
 import { UserDataSources } from "./graphql/dataSources/UserDataSource.js";
 import { AudioDataSources } from "./graphql/dataSources/AudioDataSources.js";
@@ -37,12 +41,13 @@ import { authenticateRequest } from "./middleware/auth.js";
 import { shareController } from "./controllers/sharingController.js";
 import { AppError } from "./utils/AppError.js";
 import authLimiter from "./middleware/rateLimiter.js";
-
-// Load .env variables into process.env
-config();
+import depthLimit from "graphql-depth-limit";
+import helmet from "helmet";
 
 const app = express();
 const PORT = process.env.PORT || 7860;
+
+app.use(helmet());
 
 /**
  * The Telegram channel IDs to crawl during the daily sync.
@@ -94,14 +99,14 @@ cron.schedule(
 app.use(cookieParser());
 app.use(
   cors({
-    origin: ["*"],
+    origin: "http://localhost:8080",
     credentials: true,
     // These headers must be exposed so the browser can read them for
     // HTTP range-request (seek/scrub) support in the audio player.
     exposedHeaders: ["Content-Range", "Accept-Ranges", "Content-Length"],
   }),
 );
-app.use(express.json());
+app.use(express.json({ limit: "100kb" }));
 
 // ─── 4. REST Routes ───────────────────────────────────────────────────────────
 
@@ -141,6 +146,8 @@ const server = new ApolloServer({
   // typeDefs,
   // resolvers,
   schema: schemaWithPermissions,
+  introspection: process.env.NODE_ENV !== "production",
+  validationRules: [depthLimit(5)],
 });
 
 await server.start();
@@ -170,8 +177,7 @@ app.use(
         } catch (err: any) {
           // An expired or tampered token is not a crash — the resolver will
           // handle the null user and throw an appropriate auth error.
-          console.log(`There was an error: ${err.message || err}`);
-          throw new AppError(`An error occured: ${err.mesage || err}`);
+          currentUser = null;
         }
       }
 
@@ -188,4 +194,14 @@ app.listen(Number(PORT), "0.0.0.0", () => {
 🌍 Binding: 0.0.0.0
 🔊 Streaming endpoint: /stream/:channelId/:messageId
   `);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled Rejection:", reason);
+  process.exit(1); // Let the container orchestrator restart
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err);
+  process.exit(1);
 });

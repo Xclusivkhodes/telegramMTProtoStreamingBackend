@@ -1,3 +1,17 @@
+/**
+ * audioQueries/audiosByPreacher.ts — Paginated Sermons by Preacher
+ *
+ * Returns a cursor-paginated list of sermons filtered by preacher name
+ * (case-insensitive partial match).
+ *
+ * Cursor format: base64("<title>:<_id>")
+ * The compound cursor handles duplicate titles without skipping records.
+ * See AudioDataSources.findAudioByPreacher for the full cursor logic.
+ *
+ * Only throws 404 on the first page (no `after` cursor). Subsequent pages
+ * can legitimately return empty edges when the list is exhausted.
+ */
+
 import { AppError } from "../../../../utils/AppError.js";
 
 export const audiosByPreacher = async (
@@ -12,7 +26,6 @@ export const audiosByPreacher = async (
       after,
     );
 
-    // Only throw 404 on the first page — subsequent pages can legitimately be empty
     if (!nodes || nodes.length === 0) {
       if (!after)
         throw new AppError(`Audios of ${preacher} was not found`, 404);
@@ -20,7 +33,6 @@ export const audiosByPreacher = async (
 
     return {
       edges: nodes.map((node: any) => ({
-        // Cursor encodes both title and _id to handle duplicate titles correctly
         cursor: Buffer.from(`${node.title}:${node._id}`).toString("base64"),
         node,
       })),

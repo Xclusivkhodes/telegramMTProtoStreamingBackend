@@ -1,3 +1,11 @@
+/**
+ * audioQueries/allAudios.ts — All Audios Query (unpaginated)
+ *
+ * Returns every sermon in the database sorted by name then sequence.
+ * No pagination — intended for admin dashboards or small catalogues.
+ * For large catalogues use getAudios (cursor-paginated).
+ */
+
 import { sort } from "fast-sort";
 import { AppError } from "../../../../utils/AppError.js";
 
